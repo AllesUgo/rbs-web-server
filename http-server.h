@@ -14,7 +14,7 @@
 #include "rbslib/FileIO.h"
 #include "rbslib/Network.h"
 #include "rbslib/URLEncoder.h"
-#include "log/logger.h"
+#include "liblog/logger.h"
 #include "json/CJsonObject.h"
 #include "ConstStrings.h"
 #ifdef LINUX
