@@ -209,9 +209,8 @@ int main(int argc, char** argv)
 					response.status = 302;
 					response.status_descraption = "Found";
 					response.headers.AddHeader("Location", Configuration::default_page.string());
-					response.headers.AddHeader("Connection", "close");
 					connection.Send(response.ToBuffer());
-					return;
+					return 0;
 				}
 				//URL解码
 				auto url = RbsLib::Encoding::URLEncoder::Decode(header.path);
@@ -240,11 +239,9 @@ int main(int argc, char** argv)
 						response.status = 404;
 						response.status_descraption = "Not Found";
 						response.headers.AddHeader("Content-Type", "text/html");
-						response.headers.AddHeader("Connection", "close");
 						std::string html = "<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1></body></html>";
 						response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 						connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
-
 					}
 					else if (RbsLib::Storage::StorageFile(cgi_path).GetFileType() != RbsLib::Storage::FileType::Regular)
 					{
@@ -252,7 +249,6 @@ int main(int argc, char** argv)
 						response.status = 403;
 						response.status_descraption = "Forbidden";
 						response.headers.AddHeader("Content-Type", "text/html");
-						response.headers.AddHeader("Connection", "close");
 						std::string html = "<html><head><title>403 Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>";
 						response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 						connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
@@ -276,7 +272,6 @@ int main(int argc, char** argv)
 							if (mime_type.empty())
 								mime_type = "application/octet-stream";
 							response.headers.AddHeader("Content-Type", mime_type);
-							response.headers.AddHeader("Connection", "close");
 							std::size_t final_start, final_size;//用于存储最终需要发送的文件大小和起始位置
 							//检查是否要获取文件的某一部分，依据请求构造头部和文件范围
 							if (header.headers.ExistHeader("Range"))
@@ -306,7 +301,7 @@ int main(int argc, char** argv)
 										response.status_descraption = "Requested Range Not Satisfiable";
 										response.headers.AddHeader("Content-Range", "bytes */" + std::to_string(RbsLib::Storage::StorageFile(file_path).GetFileSize()));
 										connection.Send(response.ToBuffer());
-										return;
+										return 0;
 									}
 									if (start == -1) start = 0;
 									if (end == -1) end = RbsLib::Storage::StorageFile(file_path).GetFileSize() - 1;
@@ -317,7 +312,7 @@ int main(int argc, char** argv)
 										response.status_descraption = "Requested Range Not Satisfiable";
 										response.headers.AddHeader("Content-Range", "bytes */" + std::to_string(RbsLib::Storage::StorageFile(file_path).GetFileSize()));
 										connection.Send(response.ToBuffer());
-										return;
+										return 0;
 									}
 									//检查文件大小是否超过范围
 									if (end >= RbsLib::Storage::StorageFile(file_path).GetFileSize())
@@ -336,7 +331,7 @@ int main(int argc, char** argv)
 									response.status_descraption = "Requested Range Not Satisfiable";
 									response.headers.AddHeader("Content-Range", "bytes */" + std::to_string(RbsLib::Storage::StorageFile(file_path).GetFileSize()));
 									connection.Send(response.ToBuffer());
-									return;
+									return 0;
 								}
 							}
 							else
@@ -370,7 +365,6 @@ int main(int argc, char** argv)
 							response.status = 403;
 							response.status_descraption = "Forbidden";
 							response.headers.AddHeader("Content-Type", "text/html");
-							response.headers.AddHeader("Connection", "close");
 							std::string html = "<html><head><title>403 Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>";
 							response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 							auto b = response.ToBuffer();
@@ -384,12 +378,12 @@ int main(int argc, char** argv)
 						response.status = 404;
 						response.status_descraption = "Not Found";
 						response.headers.AddHeader("Content-Type", "text/html");
-						response.headers.AddHeader("Connection", "close");
 						std::string html = "<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1></body></html>";
 						response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 						connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
 					}
 				}
+				return 0;
 			}
 			catch (const std::exception& ex)
 			{
@@ -403,6 +397,7 @@ int main(int argc, char** argv)
 				response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 				connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
 				Logger::LogError("发生错误: %s", ex.what());
+				return -1;
 			}
 
 			});
@@ -439,7 +434,6 @@ int main(int argc, char** argv)
 							response.status = 404;
 							response.status_descraption = "Not Found";
 							response.headers.AddHeader("Content-Type", "text/html");
-							response.headers.AddHeader("Connection", "close");
 							std::string html = "<html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1></body></html>";
 							response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 							connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
@@ -451,7 +445,6 @@ int main(int argc, char** argv)
 							response.status = 403;
 							response.status_descraption = "Forbidden";
 							response.headers.AddHeader("Content-Type", "text/html");
-							response.headers.AddHeader("Connection", "close");
 							std::string html = "<html><head><title>403 Forbidden</title></head><body><h1>403 Forbidden</h1></body></html>";
 							response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 							connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
@@ -468,11 +461,11 @@ int main(int argc, char** argv)
 						response.status = 405;
 						response.status_descraption = "Method Not Allowed";
 						response.headers.AddHeader("Content-Type", "text/html");
-						response.headers.AddHeader("Connection", "close");
 						std::string html = "<html><head><title>405 Method Not Allowed</title></head><body><h1>405 Method Not Allowed</h1></body></html>";
 						response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 						connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
 					}
+					return 0;
 				}
 				catch (const std::exception& ex)
 				{
@@ -486,10 +479,11 @@ int main(int argc, char** argv)
 					response.headers.AddHeader("Content-Length", std::to_string(html.size()));
 					connection.Send(response.ToBuffer().AppendToEnd(RbsLib::Buffer(html)));
 					Logger::LogError("发生错误: %s", ex.what());
+					return -1;
 				}
 				});
 			
-			http_server.LoopWait();
+			http_server.LoopWait(true,20);
 	}
 	catch (const std::exception& e)
 	{
@@ -609,7 +603,6 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string
 		CloseHandle(hWritePipe);
 		throw std::runtime_error("CreatePipe failed");
 	}
-
 	//使用DuplicateHandle将子进程不需要的两个句柄设置为不可继承
 	HANDLE hTemp = NULL;
 	bSuccess = DuplicateHandle(GetCurrentProcess(), hWritePipe, GetCurrentProcess(), &hWritePipe, 0, FALSE, DUPLICATE_CLOSE_SOURCE|DUPLICATE_SAME_ACCESS);
@@ -1213,7 +1206,6 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path, const std::string& query_stri
 	read_thread.join();
 	close(ctp[0]);
 	//关闭读取端
-	close(ptc[0]);
 	
 }
 #endif
