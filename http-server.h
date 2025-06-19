@@ -9,6 +9,7 @@
 #include <regex>
 #include <fstream>
 #include <thread>
+#include <map>
 #include "rbslib/Buffer.h"
 #include "rbslib/Storage.h"
 #include "rbslib/FileIO.h"
@@ -43,6 +44,7 @@ public:
 	inline static std::filesystem::path mime_path;
 	inline static std::filesystem::path log_path;
 	inline static std::filesystem::path default_page;
+	inline static std::map<std::string, std::string> cgi_env;//cgi环境变量
 	static bool LoadConfigurationFile(std::filesystem::path path);
 	static bool SaveConfigurationFile(std::filesystem::path path);
 	static void GenerateDefaultConfiguration(void);
@@ -51,5 +53,5 @@ public:
 class CGIExecuter
 {
 public:
-	static void ExecuteCGI(std::string cgi_path,const std::string& query_string, const RbsLib::Network::TCP::TCPConnection& connection, const RbsLib::Network::HTTP::RequestHeader& header, const RbsLib::Buffer& buffer);
+	static int ExecuteCGI(std::string cgi_path,const std::string& query_string, const RbsLib::Network::TCP::TCPConnection& connection, const RbsLib::Network::HTTP::RequestHeader& header, const RbsLib::Buffer& buffer);
 };

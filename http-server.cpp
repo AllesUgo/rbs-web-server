@@ -2,6 +2,11 @@
 //
 
 #include "http-server.h"
+#include "rbslib/CharsetConvert.h"
+
+#ifdef WIN32
+static HANDLE CurrentStdOutHandle;
+#endif
 
 bool Configuration::LoadConfigurationFile(std::filesystem::path path)
 {
@@ -79,6 +84,36 @@ bool Configuration::LoadConfigurationFile(std::filesystem::path path)
 	{
 		Configuration::default_page = temp_string;
 	}
+
+	neb::CJsonObject cgi_env_json;
+	if (config_json.Get("cgi_env", cgi_env_json))
+	{
+		std::regex env_var_regex("^\\s*\\$\\{\\s*(\\w+)\\s*\\}\\s*$");
+		std::string first, second;
+		while (cgi_env_json.GetKey(first))
+		{
+			second = cgi_env_json(first);
+			std::smatch matches;
+			if (std::regex_match(second, matches, env_var_regex))
+			{
+				const char* env_value = std::getenv(matches[1].str().c_str());
+				if (env_value == nullptr)
+				{
+					std::cout << "环境变量" << second << "未设置，无法解析" << std::endl;
+				}
+				else
+				{
+					//如果环境变量存在，则替换为环境变量的值
+					Configuration::cgi_env[first] = env_value;
+				}
+			}
+			else Configuration::cgi_env[first] = second;
+		}
+	}
+	else
+	{
+		std::cout << "配置文件缺少cgi_env字段" << std::endl;
+	}
 	return true;
 }
 
@@ -97,6 +132,13 @@ bool Configuration::SaveConfigurationFile(std::filesystem::path path)
        config_json.Add("mime_path", Configuration::mime_path.string());
        config_json.Add("log_path", Configuration::log_path.string());
        config_json.Add("default_page", Configuration::default_page.string());
+	   neb::CJsonObject cgi_env;
+	   for (const auto& env : Configuration::cgi_env)
+	   {
+		   cgi_env.Add(env.first, env.second);
+	   }
+	   if (cgi_env.IsEmpty()) config_json.AddEmptySubObject("cgi_env");
+	   else config_json.Add("cgi_env", cgi_env);
 
        std::ofstream config_file(path);
        if (!config_file.is_open())
@@ -197,6 +239,10 @@ int main(int argc, char** argv)
 		Logger::LogInfo("已设置置日志目录为%s", Configuration::log_path.string().c_str());
 		Logger::LogInfo("已设置置默认页面为%s", Configuration::default_page.string().c_str());
 		Logger::LogInfo("使用地址%s:%d 启动服务器", Configuration::addr.c_str(), Configuration::port);
+		for (const auto& env : Configuration::cgi_env)
+		{
+			std::cout << "CGI环境变量: " << env.first << " = " << env.second << std::endl;
+		}
 		RbsLib::Network::HTTP::HTTPServer http_server(Configuration::addr, Configuration::port);
 		http_server.SetGetHandle([&mime_json](const RbsLib::Network::TCP::TCPConnection& connection, RbsLib::Network::HTTP::RequestHeader& header) {
 			try
@@ -213,7 +259,7 @@ int main(int argc, char** argv)
 					return 0;
 				}
 				//URL解码
-				auto url = RbsLib::Encoding::URLEncoder::Decode(header.path);
+				auto url = RbsLib::Encoding::CharsetConvert::UTF8toANSI(RbsLib::Encoding::URLEncoder::Decode(header.path));
 				//去除URL的前导斜杠
 				if (!url.empty() and url[0] == '/') url = url.substr(1);
 				//使用正则表达式匹配路径是否属于CGI
@@ -256,7 +302,7 @@ int main(int argc, char** argv)
 					else
 					{
 						//执行CGI
-						CGIExecuter::ExecuteCGI(cgi_path, query_string, connection, header, RbsLib::Buffer());
+						return CGIExecuter::ExecuteCGI(cgi_path, query_string, connection, header, RbsLib::Buffer());
 					}
 				}
 				else
@@ -452,7 +498,7 @@ int main(int argc, char** argv)
 						else
 						{
 							//执行CGI
-							CGIExecuter::ExecuteCGI(cgi_path, query_string, connection, header, post_content);
+							return CGIExecuter::ExecuteCGI(cgi_path, query_string, connection, header, post_content);
 						}
 					}
 					else
@@ -482,8 +528,10 @@ int main(int argc, char** argv)
 					return -1;
 				}
 				});
-			
-			http_server.LoopWait(true,20);
+#ifdef WIN32
+			CurrentStdOutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+#endif
+			http_server.LoopWait(true,0);
 	}
 	catch (const std::exception& e)
 	{
@@ -538,7 +586,7 @@ neb::CJsonObject LoadMimeJson()
 #include <namedpipeapi.h>
 #include <io.h>
 #include <fcntl.h>
-void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string, const RbsLib::Network::TCP::TCPConnection& connection, const RbsLib::Network::HTTP::RequestHeader& header, const RbsLib::Buffer& buffer)
+int CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string, const RbsLib::Network::TCP::TCPConnection& connection, const RbsLib::Network::HTTP::RequestHeader& header, const RbsLib::Buffer& buffer)
 {
 	//从cgi_path中查找QUERY_STRING部分
 	SECURITY_ATTRIBUTES sa = { 0 };
@@ -575,13 +623,19 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string
 	header_copy.headers.AddHeader("SERVER_PROTOCOL", "HTTP/1.1");
 	header_copy.headers.AddHeader("SERVER_SOFTWARE", Configuration::server_version);
 	header_copy.headers.AddHeader("REMOTE_ADDR", connection.GetAddress());
+	auto map_list = header_copy.headers.GetHeaderMap();
+	//将cgi_env中的变量也加入header_copy
+	for (const auto& env : Configuration::cgi_env)
+	{
+		map_list[env.first] = env.second;
+	}
 
-	for (const auto& header : header_copy.headers.GetHeaderMap())
+	for (const auto& header : map_list)
 	{
 		env_size += header.first.size() + header.second.size() + 2; // +2 for '=' and '\0'
 	}
 	RbsLib::Buffer env_buf(env_size);
-	for (const auto& header : header_copy.headers.GetHeaderMap())
+	for (const auto& header : map_list)
 	{
 		env_buf.AppendToEnd(RbsLib::Buffer(header.first + '=' + header.second, true));
 	}
@@ -630,6 +684,8 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string
 	si.cb = sizeof(STARTUPINFO);
 	si.hStdInput = hReadPipe;  // 将管道的读取端作为子进程的标准输入
 	si.hStdOutput = hWritePipe2;  // 将管道的写入端作为子进程的标准输出
+	//将标准错误输出重定向到父进程的标准输出
+	si.hStdError = CurrentStdOutHandle;
 	si.dwFlags = STARTF_USESTDHANDLES;
 
 	
@@ -652,7 +708,8 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string
 		throw std::runtime_error("CreateProcess failed");
 	}
 	//创建一个线程来读取子进程的输出，并转发到浏览器
-	std::thread read_thread([hReadPipe2, &connection,&pi]() {
+	int return_value = 0;
+	std::thread read_thread([hReadPipe2, &connection,&pi,&return_value]() {
 		//子线程不管理资源，因此无需考虑异常导致资源无法释放的问题
 		RbsLib::Buffer buffer(64 * 1024);
 		//读取HTTP头部
@@ -815,6 +872,12 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string
 			response.status = 200;
 			response.status_descraption = "OK";
 		}
+		//检查是否具有Content-Length,如果没有，则之后返回非零值表示需要关闭连接，否则可能因为keep-alive而导致浏览器与服务器同时等待数据
+		
+		if (!response.headers.ExistHeader("Content-Length"))
+		{
+			return_value = 1;
+		}
 		//发送buffer中剩余的数据
 		if (error == 0)
 		{
@@ -873,6 +936,7 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string
 	CloseHandle(pi.hThread);
 	read_thread.join();
 	CloseHandle(hReadPipe2);
+	return return_value;
 }
 #endif
 
@@ -881,9 +945,10 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path,const std::string&query_string
 #include <signal.h>
 #include <sys/wait.h>
 #include <sys/types.h>
-void CGIExecuter::ExecuteCGI(std::string cgi_path, const std::string& query_string, const RbsLib::Network::TCP::TCPConnection& connection, const RbsLib::Network::HTTP::RequestHeader& header, const RbsLib::Buffer& buffer)
+int CGIExecuter::ExecuteCGI(std::string cgi_path, const std::string& query_string, const RbsLib::Network::TCP::TCPConnection& connection, const RbsLib::Network::HTTP::RequestHeader& header, const RbsLib::Buffer& buffer)
 {
 	int ptc[2], ctp[2];
+	int return_value = 0;
 
 
 	//设置子进程的环境变量在继承父进程的基础上增加HTTP请求头
@@ -949,9 +1014,14 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path, const std::string& query_stri
 		//忽略SIGPIPE信号
 		signal(SIGPIPE, SIG_IGN);
 		//构造环境变量
-		char** env = new char* [header_copy.headers.GetHeaderMap().size() + 1];
+		auto map = header_copy.headers.GetHeaderMap();
+		for (const auto& env : Configuration::cgi_env)
+		{
+			map[env.first] = env.second;
+		}
+		char** env = new char* [map.size() + 1];
 		int i = 0;
-		for (const auto& header : header_copy.headers.GetHeaderMap())
+		for (const auto& header : map)
 		{
 			env[i] = new char[header.first.size() + header.second.size() + 2]; // +2 for '=' and '\0'
 			strcpy(env[i], header.first.c_str());
@@ -979,7 +1049,7 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path, const std::string& query_stri
 	}
 	//关闭父进程的无用端口
 	//创建一个线程来读取子进程的输出，并转发到浏览器
-	std::thread read_thread([ctp, &connection,pid]() {
+	std::thread read_thread([ctp, &connection,pid,&return_value]() {
 		try
 		{
 			//子线程不管理资源，因此无需考虑异常导致资源无法释放的问题
@@ -1143,6 +1213,11 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path, const std::string& query_stri
 				response.status = 200;
 				response.status_descraption = "OK";
 			}
+			//检查是否具有Content-Length,如果没有，则之后返回非零值表示需要关闭连接，否则可能因为keep-alive而导致浏览器与服务器同时等待数据
+			if (!response.headers.ExistHeader("Content-Length"))
+			{
+				return_value = 1;
+			}
 			//发送buffer中剩余的数据
 			if (error == 0)
 			{
@@ -1206,6 +1281,7 @@ void CGIExecuter::ExecuteCGI(std::string cgi_path, const std::string& query_stri
 	read_thread.join();
 	close(ctp[0]);
 	//关闭读取端
-	
+
+	return return_value;
 }
 #endif

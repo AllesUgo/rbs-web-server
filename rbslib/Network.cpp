@@ -446,7 +446,7 @@ void RbsLib::Network::HTTP::HTTPServer::LoopWait(bool use_thread_pool, int keep_
 				bool is_keep_alive = true;
 				try
 				{
-					while (is_keep_alive)
+					while (true)
 					{
 						RequestHeader header;
 						const char* p;
@@ -545,6 +545,7 @@ void RbsLib::Network::HTTP::HTTPServer::LoopWait(bool use_thread_pool, int keep_
 							if (get(connection, header))
 								is_keep_alive = false;
 						}
+						if (is_keep_alive == false) break;
 					}
 
 				}
@@ -668,6 +669,7 @@ void RbsLib::Network::HTTP::HTTPServer::LoopWait(bool use_thread_pool, int keep_
 							if (get(connection, header))
 								keep_alive = false;
 						}
+						if (keep_alive == false) break;
 					}
 
 				}
@@ -714,7 +716,7 @@ void RbsLib::Network::HTTP::HTTPHeadersContent::AddHeader(const std::string& key
 void RbsLib::Network::HTTP::HTTPHeadersContent::AddHeader(const std::string& line)
 {
 	std::cmatch m;
-	std::regex reg("^\\s*([a-z,A-Z,_,-]+)\\s*:\\s*([^\\f\\n\\r\\t\\v]+)\\s*$");
+	static const std::regex reg("^\\s*([a-z,A-Z,_,-]+)\\s*:\\s*([^\\f\\n\\r\\t\\v]+)\\s*$");
 	std::regex_match(line.c_str(), m, reg);
 	if (m.size() != 3) throw HTTPException("HTTP Header line parse failed");
 	this->headers[m[1]] = m[2];
